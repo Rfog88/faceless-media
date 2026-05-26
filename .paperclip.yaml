@@ -1,0 +1,127 @@
+schema: agentcompanies/v1
+kind: companyConfig
+company: faceless-media-holdings
+
+# Skill library — checkbox-enabled per agent in Paperclip UI after import.
+skills:
+  # Reused from Vantyx (adapted)
+  - escalate-to-board
+  - board-notify
+  - kpi-rollup
+  # New (gate primitive)
+  - board-approval-request
+  # Trend stack
+  - trend-scan-youtube
+  - trend-scan-reddit
+  - trend-scan-trends
+  - viral-packet-build
+  # Script + QA
+  - script-generate
+  - script-qa
+  # Production stack
+  - voiceover-elevenlabs
+  - video-assemble
+  - thumbnail-generate
+  - thumbnail-score
+  - copyright-preflight
+  # Publishing + analytics
+  - youtube-upload
+  - ab-thumbnail-test
+  - analytics-pull
+
+# Routines — DOCUMENTATION ONLY. companies-tool does NOT import these.
+# Create manually in Paperclip UI per reference_paperclip_ui_routines.md.
+routines:
+  - name: trend-scan-morning
+    assignee: trend-analyst
+    schedule: "weekdays 7:00 ET"
+    iterates_channels: true
+    purpose: "YT exploding + Reddit + Trends scan for each gated/graduated channel."
+
+  - name: trend-scan-evening
+    assignee: trend-analyst
+    schedule: "weekdays 18:00 ET"
+    iterates_channels: true
+    purpose: "Afternoon TikTok cross-pollination scan."
+
+  - name: packet-approval-window
+    assignee: head-of-content
+    schedule: "weekdays 9:00 ET"
+    iterates_channels: true
+    purpose: "Bless overnight packets across channels."
+
+  - name: production-tick
+    assignee: producer
+    schedule: "every 2h"
+    iterates_channels: true
+    purpose: "Advance pipeline; respect per-channel hold-queue cap M=3."
+
+  - name: board-approval-poll
+    assignee: cto
+    schedule: "every 4h"
+    iterates_channels: true
+    purpose: "Check pending_board_approval Issues, ping Board on 24h timeout."
+
+  - name: upload-window
+    assignee: publisher
+    schedule: "daily 13:00 ET"
+    iterates_channels: true
+    purpose: "Release ready_to_publish queue per channel."
+
+  - name: analytics-rollup
+    assignee: analytics-lead
+    schedule: "daily 7:00 ET"
+    iterates_channels: true
+    purpose: "YT Analytics API + per-channel lessons.md + global-lessons.md."
+
+  - name: kpi-rollup-morning
+    assignee: ceo
+    schedule: "weekdays 7:45 ET"
+    iterates_channels: false
+    purpose: "Board digest: gate status, queue depths, KPIs by channel."
+
+  - name: budget-rollup
+    assignee: cto
+    schedule: "every 6h"
+    iterates_channels: false
+    purpose: "Subscription quota + per-channel external API spend."
+
+  - name: copyright-audit
+    assignee: cto
+    schedule: "weekly Sunday"
+    iterates_channels: false
+    purpose: "License sweep on all published assets."
+
+  - name: gate-graduation-check
+    assignee: cto
+    schedule: "daily 18:00 ET"
+    iterates_channels: true
+    purpose: "Evaluate (N>=10 AND last K>=5 clean) per channel; announce graduations."
+
+  - name: panic-pause-all
+    assignee: cto
+    schedule: "manual"
+    iterates_channels: false
+    purpose: "Kill switch."
+
+# Environment keys — configure values in Paperclip secrets UI, NOT in repo.
+projectEnv:
+  shared:
+    - ELEVENLABS_API_KEY
+    - STORYBLOCKS_API_KEY
+    - EPIDEMIC_SOUND_API_KEY
+    - REDDIT_CLIENT_ID
+    - REDDIT_CLIENT_SECRET
+    - DISCORD_WEBHOOK_URL
+    - OPENAI_API_KEY        # optional; codex_local subscription preferred for image gen
+  perChannel:
+    # Suffix with channel slug, e.g. YOUTUBE_API_KEY__english-learning
+    - YOUTUBE_API_KEY__<channel>
+    - YOUTUBE_OAUTH_REFRESH_TOKEN__<channel>
+    - ADSENSE_PUBLISHER_ID__<channel>
+
+# Adapter mode — claude_local / codex_local on Ryan's Max + Pro subscriptions.
+# Per feedback_paperclip_subscription_adapters.md — no LLM API keys needed.
+adapters:
+  default_llm: claude_local
+  image_gen: codex_local

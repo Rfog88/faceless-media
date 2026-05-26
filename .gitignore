@@ -1,0 +1,13 @@
+data/*.sqlite
+data/*.sqlite-journal
+data/*.sqlite-wal
+data/*.sqlite-shm
+node_modules/
+.env
+.env.local
+*.log
+.DS_Store
+Thumbs.db
+/tmp/
+/build/
+/dist/
