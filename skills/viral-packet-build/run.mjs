@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // viral-packet-build — synthesize trends signals into packet Issues for Head of Content.
-// STATUS: Paperclip Issue-creation stubbed pending endpoint confirmation. SQLite + composition active.
+// STATUS: Paperclip Issue-creation live. SQLite + composition active.
 //
 // Storage: node:sqlite (requires NODE_OPTIONS=--experimental-sqlite on Node 22.x).
 //
@@ -155,14 +155,76 @@ function buildPacketMarkdown(cluster, score, channel) {
   ].join("\n");
 }
 
-async function createPaperclipIssue(input) {
-  // TODO Phase 1 deploy: actual Paperclip API call.
-  const apiUrl = process.env.PAPERCLIP_API_URL;
-  const apiToken = process.env.PAPERCLIP_API_TOKEN;
-  if (!apiUrl || !apiToken) {
-    return { status: "stub", reason: "paperclip_api_not_configured", would_create: { title: input.title, labels: input.labels } };
+function paperclipWebUrl(apiUrl, identifier) {
+  return `${apiUrl.replace(/\/$/, "")}/FAC/issues/${identifier}`;
+}
+
+function priorityForScore(score) {
+  if (score >= 75) return "high";
+  if (score >= 60) return "medium";
+  return "low";
+}
+
+class PacketIssueCreationError extends Error {
+  constructor(reason, detail = {}) {
+    super(reason);
+    this.reason = reason;
+    this.detail = detail;
   }
-  return { status: "stub", reason: "endpoint_pending_confirmation" };
+}
+
+async function createPaperclipIssue(input) {
+  const apiUrl = process.env.PAPERCLIP_API_URL?.replace(/\/$/, "");
+  const apiToken = process.env.PAPERCLIP_API_KEY || process.env.PAPERCLIP_API_TOKEN;
+  const companyId = process.env.PAPERCLIP_COMPANY_ID;
+  const headOfContentAgentId = process.env.HEAD_OF_CONTENT_AGENT_ID || "8e0a0e15-b5fa-41f1-8d0a-a5e2c1e0948c";
+
+  const missing = [];
+  if (!apiUrl) missing.push("PAPERCLIP_API_URL");
+  if (!apiToken) missing.push("PAPERCLIP_API_KEY");
+  if (!companyId) missing.push("PAPERCLIP_COMPANY_ID");
+  if (!headOfContentAgentId) missing.push("HEAD_OF_CONTENT_AGENT_ID");
+  if (missing.length > 0) {
+    throw new PacketIssueCreationError("paperclip_api_not_configured", { missing });
+  }
+
+  const res = await fetch(`${apiUrl}/api/companies/${companyId}/issues`, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${apiToken}`,
+      "Content-Type": "application/json",
+      ...(process.env.PAPERCLIP_RUN_ID ? { "X-Paperclip-Run-Id": process.env.PAPERCLIP_RUN_ID } : {}),
+    },
+    body: JSON.stringify({
+      title: input.title,
+      description: input.body,
+      status: "todo",
+      priority: priorityForScore(input.score),
+      assigneeAgentId: headOfContentAgentId,
+      parentId: input.parentId || null,
+      goalId: input.goalId || null,
+      billingCode: input.billingCode || null,
+    }),
+  });
+
+  let payload = null;
+  try { payload = await res.json(); } catch {}
+  if (!res.ok) {
+    throw new PacketIssueCreationError("paperclip_issue_create_failed", {
+      status: res.status,
+      payload,
+    });
+  }
+  if (!payload?.id || !payload?.identifier) {
+    throw new PacketIssueCreationError("paperclip_issue_create_missing_identifier", { payload });
+  }
+
+  return {
+    status: "created",
+    issue_id: payload.id,
+    issue_identifier: payload.identifier,
+    issue_url: paperclipWebUrl(apiUrl, payload.identifier),
+  };
 }
 
 async function main() {
@@ -214,15 +276,25 @@ async function main() {
       : "untitled";
 
     const issue = await createPaperclipIssue({
-      title: `[PACKET] ${channel}: ${topic}`,
+      title: `[PACKET][channel:${channel}] ${topic}`,
       body: md,
-      labels: [`channel:${channel}`, `priority:${cluster._score >= 75 ? 1 : cluster._score >= 60 ? 2 : 3}`],
+      score: cluster._score,
+      parentId: input.parentId,
+      goalId: input.goalId,
+      billingCode: input.billingCode,
     });
 
-    const issueUrl = issue.issue_id ? `${process.env.PAPERCLIP_API_URL}/issues/${issue.issue_id}` : `stub://packet/${Date.now()}`;
+    const issueUrl = issue.issue_url;
     insertPacket.run(issueUrl, channel, md, cluster._score, cluster.signals.length);
     for (const sig of cluster.signals) markUsed.run(sig.id);
-    created.push({ issue_url: issueUrl, topic, score: cluster._score, signal_count: cluster.signals.length });
+    created.push({
+      issue_url: issueUrl,
+      issue_id: issue.issue_id,
+      issue_identifier: issue.issue_identifier,
+      topic,
+      score: cluster._score,
+      signal_count: cluster.signals.length,
+    });
   }
 
   db.close();
@@ -236,6 +308,17 @@ async function main() {
 }
 
 main().catch((e) => {
+  if (e instanceof PacketIssueCreationError) {
+    console.error(JSON.stringify({
+      status: "blocked",
+      error: "decision-needed",
+      reason: e.reason,
+      unblock_owner: "CTO",
+      action: "Restore live Paperclip issue creation before Trend Analyst reruns packet build; no trends were marked used for the failed packet.",
+      detail: e.detail,
+    }));
+    process.exit(4);
+  }
   console.error(JSON.stringify({ error: "unknown-failure", message: e.message }));
   process.exit(1);
 });

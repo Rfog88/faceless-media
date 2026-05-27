@@ -11,7 +11,7 @@ metadata:
   implementation: skills/trend-scan-youtube/run.mjs
   primary_users: [trend-analyst]
   storage: sqlite (writes `trends` table)
-  status: stub-needs-yt-api-key
+  status: blocked-until-yt-api-live
 ---
 
 # trend-scan-youtube
@@ -26,6 +26,7 @@ Pulls competitor activity from the YouTube Data API per channel's keyword seeds.
 ## When NOT to use
 
 - For trends scoring or packet construction — that's `viral-packet-build`.
+- Production runs refuse stubbed YouTube results by default so synthetic rows cannot feed packet scoring. Use `ALLOW_STUB_TREND_SIGNALS=1` only for isolated local tests.
 - For trend interpretation / brand-fit — that's Head of Content's call on the packet.
 
 ## Inputs

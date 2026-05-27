@@ -106,6 +106,23 @@ function commentVelocityScore(score, num_comments, age_hours) {
   return cphScore + ratioScore;
 }
 
+function allowStubTrendSignals() {
+  return process.env.ALLOW_STUB_TREND_SIGNALS === "1";
+}
+
+function refuseStubTrendSignals(source, reason) {
+  if (allowStubTrendSignals()) return;
+  console.error(JSON.stringify({
+    status: "blocked",
+    error: "decision-needed",
+    reason: `${source}_stub_mode`,
+    stub_reason: reason,
+    unblock_owner: "CTO",
+    action: "Wire the live trend source API or rerun with ALLOW_STUB_TREND_SIGNALS=1 only for isolated local tests.",
+  }));
+  process.exit(4);
+}
+
 async function main() {
   const raw = readFileSync(0, "utf8") || "{}";
   let input;
@@ -137,15 +154,19 @@ async function main() {
   const perSubreddit = {};
 
   for (const sub of subs) {
-    const newPosts = (await fetchSubredditEndpoint(sub, "new", token)).synthetic_posts || [];
-    const hotPosts = (await fetchSubredditEndpoint(sub, "hot", token)).synthetic_posts || [];
+    const newPayload = await fetchSubredditEndpoint(sub, "new", token);
+    if (newPayload._stub) refuseStubTrendSignals("reddit", newPayload.reason);
+    const hotPayload = await fetchSubredditEndpoint(sub, "hot", token);
+    if (hotPayload._stub) refuseStubTrendSignals("reddit", hotPayload.reason);
+    const newPosts = newPayload.synthetic_posts || [];
+    const hotPosts = hotPayload.synthetic_posts || [];
     const all = [...newPosts, ...hotPosts];
 
     let highVelocity = 0;
     for (const post of all) {
       const score = commentVelocityScore(post.score, post.num_comments, post.age_hours);
       if (score >= 50) highVelocity++;
-      insert.run(channel, "reddit", JSON.stringify({ subreddit: sub, ...post }), score);
+      insert.run(channel, "reddit", JSON.stringify({ subreddit: sub, _stub: !!newPayload._stub || !!hotPayload._stub, ...post }), score);
       signalsAdded++;
     }
     perSubreddit[sub] = { posts_scanned: all.length, high_velocity_count: highVelocity };

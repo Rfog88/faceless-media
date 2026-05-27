@@ -94,6 +94,23 @@ async function fetchRisingQueries(keyword) {
   };
 }
 
+function allowStubTrendSignals() {
+  return process.env.ALLOW_STUB_TREND_SIGNALS === "1";
+}
+
+function refuseStubTrendSignals(source, reason) {
+  if (allowStubTrendSignals()) return;
+  console.error(JSON.stringify({
+    status: "blocked",
+    error: "decision-needed",
+    reason: `${source}_stub_mode`,
+    stub_reason: reason,
+    unblock_owner: "CTO",
+    action: "Wire the live trend source API or rerun with ALLOW_STUB_TREND_SIGNALS=1 only for isolated local tests.",
+  }));
+  process.exit(4);
+}
+
 async function main() {
   const raw = readFileSync(0, "utf8") || "{}";
   let input;
@@ -128,13 +145,15 @@ async function main() {
     let payload = getCached(db, cacheKey);
     if (!payload) {
       payload = await fetchRisingQueries(kw);
+      if (payload._stub) refuseStubTrendSignals("gtrends", payload.reason);
       setCached(db, cacheKey, payload);
     }
+    if (payload._stub) refuseStubTrendSignals("gtrends", payload.reason);
     const rising = payload.rising || [];
     let topBreakout = null;
     for (const item of rising) {
       if (!topBreakout || item.breakout_score > topBreakout.breakout_score) topBreakout = item;
-      insert.run(channel, "gtrends", JSON.stringify({ seed: kw, ...item }), item.breakout_score);
+      insert.run(channel, "gtrends", JSON.stringify({ seed: kw, _stub: !!payload._stub, ...item }), item.breakout_score);
       signalsAdded++;
     }
     perKeyword[kw] = { rising_count: rising.length, top_breakout: topBreakout?.query || null };

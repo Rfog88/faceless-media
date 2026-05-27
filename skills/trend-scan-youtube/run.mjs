@@ -90,6 +90,23 @@ function scoreSignal(vph, niche_baseline = 50) {
   return Math.min(100, Math.round(raw));
 }
 
+function allowStubTrendSignals() {
+  return process.env.ALLOW_STUB_TREND_SIGNALS === "1";
+}
+
+function refuseStubTrendSignals(source, reason) {
+  if (allowStubTrendSignals()) return;
+  console.error(JSON.stringify({
+    status: "blocked",
+    error: "decision-needed",
+    reason: `${source}_stub_mode`,
+    stub_reason: reason,
+    unblock_owner: "CTO",
+    action: "Wire the live trend source API or rerun with ALLOW_STUB_TREND_SIGNALS=1 only for isolated local tests.",
+  }));
+  process.exit(4);
+}
+
 async function main() {
   const raw = readFileSync(0, "utf8") || "{}";
   let input;
@@ -126,6 +143,7 @@ async function main() {
 
   for (const kw of keywords) {
     const search = await callYouTubeSearchList(kw, apiKey);
+    if (search._stub) refuseStubTrendSignals("youtube", search.reason);
     quotaUnitsUsed += 100;  // search.list cost
 
     const items = search.synthetic_items || search.items || [];
@@ -134,7 +152,7 @@ async function main() {
       const vph = viewsPerHour(item.viewCount, item.ageHours);
       const score = scoreSignal(vph);
       if (score >= 50) spikes.push({ ...item, vph, score });
-      insert.run(channel, "youtube", JSON.stringify({ keyword: kw, ...item, vph }), score);
+      insert.run(channel, "youtube", JSON.stringify({ keyword: kw, _stub: !!search._stub, ...item, vph }), score);
       signalsAdded++;
     }
     perKeyword[kw] = { videos_scanned: items.length, spikes_detected: spikes.length };

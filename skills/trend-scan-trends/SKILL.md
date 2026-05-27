@@ -10,10 +10,12 @@ metadata:
   implementation: skills/trend-scan-trends/run.mjs
   primary_users: [trend-analyst]
   storage: sqlite (writes `trends` table)
-  status: stub-needs-trends-fetch-shim
+  status: blocked-until-trends-fetch-live
 ---
 
 # trend-scan-trends
+
+Production runs refuse stubbed Google Trends results by default so synthetic rows cannot feed packet scoring. Use `ALLOW_STUB_TREND_SIGNALS=1` only for isolated local tests.
 
 Pulls "rising" related queries per channel keyword from Google Trends. Used as the leading-indicator signal layer — Trends often spikes before YouTube competitor activity does.
 

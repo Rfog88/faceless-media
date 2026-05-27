@@ -12,10 +12,12 @@ metadata:
   implementation: skills/trend-scan-reddit/run.mjs
   primary_users: [trend-analyst]
   storage: sqlite (writes `trends` table)
-  status: stub-needs-reddit-oauth
+  status: blocked-until-reddit-api-live
 ---
 
 # trend-scan-reddit
+
+Production runs refuse stubbed Reddit results by default so synthetic rows cannot feed packet scoring. Use `ALLOW_STUB_TREND_SIGNALS=1` only for isolated local tests.
 
 Pulls activity from subreddits listed in each channel's `brand.md`. Surfaces emerging discussion topics and high-comment-velocity threads (high comments/upvote ratio = controversial = curiosity opportunity).
 

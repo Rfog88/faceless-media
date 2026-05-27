@@ -6,13 +6,14 @@ description: Synthesize multi-source trend signals into a research packet. Clust
 metadata:
   requires_env:
     - PAPERCLIP_API_URL
-    - PAPERCLIP_API_TOKEN
+    - PAPERCLIP_API_KEY
+    - PAPERCLIP_COMPANY_ID
     - FACELESS_MEDIA_DB_PATH
     - NODE_OPTIONS                  # --experimental-sqlite
   implementation: skills/viral-packet-build/run.mjs
   primary_users: [trend-analyst]
   storage: sqlite (reads `trends`, writes `packets`)
-  status: stub-needs-paperclip-api
+  status: live-paperclip-issue-create
 ---
 
 # viral-packet-build
@@ -52,7 +53,7 @@ Closes the synthesis side of Trend Analyst's loop. Takes raw signals from `trend
    - ZERO if topic matches a channel's banned topic-boundary
 5. For top-scoring clusters above `min_score`, up to `max_packets`:
    a. Compose packet markdown with topic, evidence (signal citations), lesson citations, hook angle, thumbnail angle, format recommendation
-   b. File as Paperclip Issue with `channel:<slug>` + `priority:N` labels, status `new` (then transition to `pending_approval` for Head of Content)
+   b. File as Paperclip Issue assigned to Head of Content with title prefix `[PACKET][channel:<slug>]` and Paperclip priority mapped from score
    c. Mark contributing `trends` rows as `used_in_packet=true`
    d. Write packet metadata to `packets` SQLite table
 
@@ -72,4 +73,4 @@ Closes the synthesis side of Trend Analyst's loop. Takes raw signals from `trend
 
 ## Implementation status
 
-Stub for Phase 1: Paperclip Issue-creation is stubbed pending endpoint confirmation. SQLite logic + packet markdown composition ARE active.
+Paperclip Issue-creation is live. Packet build refuses to mark trends used or write `packets` rows when issue creation is unavailable, so production runs cannot report `packets_created` from stubbed issue creation.
