@@ -6,13 +6,12 @@
 //
 // Invocation: echo '{...}' | node skills/escalate-to-board/run.mjs
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const repoRoot = resolve(here, "..", "..");
 
 const STANDARDIZED_REASONS = new Set([
   "api-key-missing",
@@ -25,10 +24,34 @@ const STANDARDIZED_REASONS = new Set([
   "unknown-failure",
 ]);
 
+function resolveSiblingSkill(name) {
+  const catalogDir = dirname(here);
+  if (existsSync(catalogDir) && statSync(catalogDir).isDirectory()) {
+    const match = readdirSync(catalogDir)
+      .find((entry) => entry === name || entry.startsWith(`${name}--`));
+    if (match) {
+      const path = resolve(catalogDir, match, "run.mjs");
+      if (existsSync(path)) return path;
+    }
+  }
+
+  const devPath = resolve(here, "..", "..", "skills", name, "run.mjs");
+  if (existsSync(devPath)) return devPath;
+
+  throw new Error(`sibling skill not found: ${name} (searched ${catalogDir} and ${devPath})`);
+}
+
 async function callBoardNotify(payload) {
+  let scriptPath;
+  try {
+    scriptPath = resolveSiblingSkill("board-notify");
+  } catch (e) {
+    return { status: "error", reason: "board_notify_not_found", message: e.message };
+  }
+
   const proc = spawnSync(
     "node",
-    [resolve(repoRoot, "skills", "board-notify", "run.mjs")],
+    [scriptPath],
     { input: JSON.stringify(payload), encoding: "utf8" }
   );
   if (proc.status !== 0) {
@@ -52,6 +75,14 @@ async function createPaperclipIssue(input) {
 }
 
 async function main() {
+  if (process.argv.includes("--self-test-resolve")) {
+    console.log(JSON.stringify({
+      status: "ok",
+      board_notify_run_mjs: resolveSiblingSkill("board-notify"),
+    }));
+    return;
+  }
+
   const raw = readFileSync(0, "utf8");
   let input;
   try { input = JSON.parse(raw); }
