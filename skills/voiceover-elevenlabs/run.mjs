@@ -100,6 +100,47 @@ function loadScript(db, script_id) {
   return db.prepare(`SELECT * FROM scripts WHERE id = ?`).get(script_id);
 }
 
+function stripScriptDirections(text) {
+  const noShortsSection = String(text || "").split(/---\s*SHORTS\s*---/i)[0] || "";
+  return noShortsSection
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !/^\[[^\]]+\]$/.test(line))
+    .map((line) => line
+      .replace(/\[[A-Z0-9 _:-]{2,80}\]/g, " ")
+      .replace(/[*_`>#]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim())
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractShortTexts(scriptMd) {
+  const parts = String(scriptMd || "").split(/---\s*SHORTS\s*---/i);
+  if (parts.length < 2) return [];
+  const shortsSection = parts.slice(1).join("\n");
+  return shortsSection
+    .split(/(?=\[SHORT\s*\d+\s+HOOK\])/i)
+    .map((block) => block.trim())
+    .filter((block) => /\[SHORT\s*\d+\s+HOOK\]/i.test(block))
+    .map((block) => block
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line && !/^\[[^\]]+\]$/.test(line))
+      .map((line) => line
+        .replace(/\[[A-Z0-9 _:-]{2,80}\]/g, " ")
+        .replace(/[*_`>#]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim())
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim())
+    .filter(Boolean);
+}
+
 async function callElevenLabsTTS(text, voiceId, apiKey) {
   // TODO Phase 1 deploy: actual fetch.
   //   const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
@@ -155,8 +196,10 @@ async function main() {
     }
   }
 
+  const longNarrationText = stripScriptDirections(script.draft_md) || script.draft_md;
+  const shortTexts = extractShortTexts(script.draft_md).slice(0, 3);
   const apiKey = process.env.ELEVENLABS_API_KEY;
-  const tts = await callElevenLabsTTS(script.draft_md, selectedVoice.voice_id, apiKey);
+  const tts = await callElevenLabsTTS(longNarrationText, selectedVoice.voice_id, apiKey);
 
   // Write MP3 to disk
   const outDir = process.env.VOICEOVER_OUTPUT_DIR || "/home/paperclip/faceless-media/voiceovers";
@@ -166,10 +209,29 @@ async function main() {
   const mp3Path = resolve(channelDir, `${issueId}_${script.format || "long"}.mp3`);
   writeFileSync(mp3Path, tts.mp3_bytes);
 
+  const shortMp3Paths = [];
+  for (let i = 0; i < shortTexts.length; i++) {
+    const shortTts = await callElevenLabsTTS(shortTexts[i], selectedVoice.voice_id, apiKey);
+    const shortPath = resolve(channelDir, `${issueId}_short${i + 1}.mp3`);
+    writeFileSync(shortPath, shortTts.mp3_bytes);
+    shortMp3Paths.push(shortPath);
+  }
+
+  const manifestPath = resolve(channelDir, `${issueId}_voiceover_manifest.json`);
+  writeFileSync(manifestPath, JSON.stringify({
+    channel,
+    script_id,
+    video_issue_url,
+    voice_id_used: selectedVoice.voice_id,
+    long_mp3_path: mp3Path,
+    short_mp3_paths: shortMp3Paths,
+    generated_at: new Date().toISOString(),
+  }, null, 2));
+
   // Log usage
   db.prepare(`
     INSERT INTO voice_usage (channel, voice_id, video_issue_url, char_count) VALUES (?, ?, ?, ?)
-  `).run(channel, selectedVoice.voice_id, video_issue_url, script.draft_md.length);
+  `).run(channel, selectedVoice.voice_id, video_issue_url, longNarrationText.length);
   db.close();
 
   console.log(JSON.stringify({
@@ -178,7 +240,9 @@ async function main() {
     voice_id_used: selectedVoice.voice_id,
     voice_name: selectedVoice.voice_name,
     mp3_path: mp3Path,
-    char_count: script.draft_md.length,
+    short_mp3_paths: shortMp3Paths,
+    voiceover_manifest_path: manifestPath,
+    char_count: longNarrationText.length,
     stub_mode: !!tts._stub,
   }));
 }

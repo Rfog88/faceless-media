@@ -7,7 +7,7 @@
 // Invocation: echo '{...}' | node skills/video-assemble/run.mjs
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { resolve, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
 let DatabaseSync;
@@ -111,6 +111,26 @@ function extractShortsBlocks(scriptMd) {
     .filter(s => /\[SHORT\s*\d+\s+HOOK\]/i.test(s));
 }
 
+function readVoiceoverManifest(voiceoverMp3Path) {
+  const dir = dirname(voiceoverMp3Path);
+  const base = basename(voiceoverMp3Path, ".mp3");
+  const issueId = base.replace(/_long$/, "");
+  const candidates = [
+    resolve(dir, `${issueId}_voiceover_manifest.json`),
+    resolve(dir, `${issueId}_manifest.json`),
+  ];
+  for (const path of candidates) {
+    if (!existsSync(path)) continue;
+    try {
+      const parsed = JSON.parse(readFileSync(path, "utf8"));
+      if (parsed && Array.isArray(parsed.short_mp3_paths)) return parsed;
+    } catch {
+      // Ignore malformed manifest and continue.
+    }
+  }
+  return null;
+}
+
 async function main() {
   const raw = readFileSync(0, "utf8") || "{}";
   let input;
@@ -173,13 +193,18 @@ async function main() {
 
   // Shorts
   const shortsBlocks = extractShortsBlocks(script.draft_md);
+  const manifest = readVoiceoverManifest(voiceover_mp3_path);
+  const requestedShortPaths = Array.isArray(input.short_voiceover_mp3_paths) ? input.short_voiceover_mp3_paths : [];
+  const manifestShortPaths = manifest?.short_mp3_paths || [];
+  const shortVoicePaths = requestedShortPaths.length > 0 ? requestedShortPaths : manifestShortPaths;
   const shortsResults = [];
   for (let i = 0; i < shortsBlocks.length; i++) {
     const shortMp4Path = resolve(channelDir, `${issueId}_short${i + 1}.mp4`);
+    const shortVoicePath = shortVoicePaths[i] || voiceover_mp3_path;
     // Shorts reuse a subset of long's B-roll
     const shortBroll = longBroll.slice(i * 2, i * 2 + 2);
     const shortCmd = buildFfmpegCommand({
-      voiceoverPath: voiceover_mp3_path,
+      voiceoverPath: shortVoicePath,
       brollClips: shortBroll,
       musicPath: musicTrack.asset_id,
       outputPath: shortMp4Path,
@@ -190,7 +215,13 @@ async function main() {
       INSERT INTO videos (video_issue_url, channel, format, mp4_path, duration_s, voice_id_used) VALUES (?, ?, ?, ?, ?, ?)
     `).run(video_issue_url, channel, "short", shortMp4Path, 45, null);
 
-    shortsResults.push({ mp4_path: shortMp4Path, duration_s: 45, source_offset_s: i * 200 });
+    shortsResults.push({
+      mp4_path: shortMp4Path,
+      duration_s: 45,
+      source_offset_s: 0,
+      audio_mode: shortVoicePath === voiceover_mp3_path ? "derived_from_long" : "dedicated_short_tts",
+      short_voiceover_mp3_path: shortVoicePath,
+    });
   }
 
   const totalAssets = longBroll.length + 1 + shortsBlocks.length * 0; // shorts reuse, don't add to license count
