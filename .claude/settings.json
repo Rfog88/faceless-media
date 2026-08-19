@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'for d in \"$CLAUDE_PROJECT_DIR\" \"$PWD\" /home/user/faceless-media; do [ -f \"$d/.claude/hooks/bootstrap.sh\" ] && exec bash \"$d/.claude/hooks/bootstrap.sh\" load; done'"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'for d in \"$CLAUDE_PROJECT_DIR\" \"$PWD\" /home/user/faceless-media; do [ -f \"$d/.claude/hooks/bootstrap.sh\" ] && exec bash \"$d/.claude/hooks/bootstrap.sh\" save; done'"
+          }
+        ]
+      }
+    ]
+  }
+}
